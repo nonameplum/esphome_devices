@@ -1,0 +1,247 @@
+esphome:
+  on_boot:
+    priority: -200
+    then:
+      - wait_until:
+          wifi.connected:
+      - delay: 2s
+      - lambda: |-
+          id(new_door_state) = id(garage_closed).state ? 2 : 1;
+      - script.execute: set_door_state
+      - script.execute: publish_door_state
+      - delay: 2s
+      - light.turn_off: light_inside
+      - light.turn_off: light_outside
+
+globals:
+  - id: door_state
+    type: int
+    restore_value: no
+    # STOPED = 0, OPENED = 1, CLOSED = 2, OPENING = 3, CLOSING = 4
+    initial_value: "0"
+  - id: last_door_state
+    type: int
+    restore_value: no
+    # STOPED = 0, OPENED = 1, CLOSED = 2, OPENING = 3, CLOSING = 4
+    initial_value: "-1"
+  - id: new_door_state
+    type: int
+    restore_value: no
+    # STOPED = 0, OPENED = 1, CLOSED = 2, OPENING = 3, CLOSING = 4
+    initial_value: "-1"
+  - id: door_duration
+    type: float
+    restore_value: no
+    initial_value: $garage_door_duration_int
+
+binary_sensor:
+  - platform: gpio
+    pin:
+      number: $garage_door_close_reed_switch_pin
+      inverted: True
+    id: garage_closed
+    internal: True
+    filters:
+      - delayed_on_off: $garage_door_reed_switch_debounce_time
+    on_release: # door externally closed
+      then:
+        - script.stop: garage_door_timer
+        - lambda: !lambda |-
+            id(new_door_state) = 3; // OPENING
+        - script.execute: set_door_state
+        - script.execute: publish_door_state
+        - script.execute: garage_door_timer
+        - script.execute: light_inside_timer
+        - script.execute: light_outside_timer
+    on_press: # door externally opened
+      then:
+        - script.stop: garage_door_timer
+        - lambda: !lambda |-
+            id(new_door_state) = 2; // CLOSED
+        - script.execute: set_door_state
+        - script.execute: publish_door_state
+        - script.stop: light_outside_timer
+        - light.turn_off: light_outside
+  - platform: template
+    name: "Garage Door"
+    device_class: garage_door
+    lambda: !lambda |-
+      return !id(garage_closed).state;
+
+switch:
+  - platform: gpio
+    pin: 
+      number: $garage_door_relay_pin
+      inverted: True
+    id: cover_relay
+    internal: True
+  - platform: template
+    icon: "mdi:arrow-up-down-bold-outline"
+    name: "Garage Control"
+    id: garage_control
+    lambda: 'return id(cover_relay).state;'
+    turn_on_action:
+      - lambda: !lambda |-
+          if (id(door_state) == 0) // when door stopped
+          {
+            if (id(last_door_state) == 3) // when was opening
+            {
+              id(new_door_state) = 4; // CLOSING
+            }
+            else if (id(last_door_state) == 4) // when was closing
+            {
+              id(new_door_state) = 3; // OPENING
+            }
+          }
+          else if (id(door_state) == 1) // when door opened
+          {
+            id(new_door_state) = 4; // CLOSING
+          }
+          else if (id(door_state) == 2) // when door closed
+          {
+            id(new_door_state) = 3; // OPENING
+          }
+          else // when opening or closing
+          {
+            id(new_door_state) = 0; // STOPPED
+          }
+      - switch.turn_on: cover_relay
+      - delay: $garage_door_relay_active_duration
+      - switch.turn_off: cover_relay
+      - script.execute: set_door_state
+      - script.execute: publish_door_state
+      - script.execute: garage_door_timer
+
+text_sensor:
+  - platform: template
+    name: "Garage Door State"
+    id: door_state_text
+
+cover:
+  - platform: template
+    name: "Garage Door Cover"
+    id: garage_door_cover
+    device_class: garage
+    optimistic: False
+    has_position: True
+    assumed_state: False
+    open_action:
+      - switch.turn_on: garage_control
+    close_action:
+      - switch.turn_on: garage_control
+    stop_action:
+      - switch.turn_on: garage_control
+    lambda: |-
+      static uint32_t last_recompute_time = 0;
+      static uint32_t last_publish_time = 0;
+      static uint8_t calculated_current_operation = -1;
+      
+      // Guard that the door is closed or in idle state then do not calculate position
+      // Tree hazard checks
+      if (id(garage_closed).state == 1 // Door closed
+          || id(garage_door_cover).current_operation == COVER_OPERATION_IDLE
+          || id(garage_door_timer).is_running() == false) 
+      {
+        calculated_current_operation = -1;
+        return {};
+      }
+
+      // Safety check do distinguish direction change
+      if (calculated_current_operation != id(garage_door_cover).current_operation)
+      {
+        last_recompute_time = millis();
+        last_publish_time = millis();
+        calculated_current_operation = id(garage_door_cover).current_operation;
+      }
+
+      // set dir and duration depending on current movement
+      float dir = (id(garage_door_cover).current_operation == COVER_OPERATION_CLOSING) ? -1.0f : 1.0f; 
+      // calculate position
+      float position = id(garage_door_cover).position;
+      position += dir * (millis() - last_recompute_time) / id(door_duration);
+      id(garage_door_cover).position = clamp(position, 0.0f, 1.0f);
+      // publish position every second
+      if (millis() - last_publish_time > 1000)
+      {
+        id(garage_door_cover).publish_state();
+        last_publish_time = millis();
+      }
+      last_recompute_time = millis();
+
+      return {};
+
+script:
+  - id: set_door_state
+    mode: "single"
+    then:
+      - lambda: !lambda |-
+          if (id(new_door_state) < 0) 
+          {
+            return;
+          }
+
+          id(last_door_state) = id(door_state);
+          id(door_state) = id(new_door_state);
+          id(new_door_state) = -1;
+  - id: garage_door_timer
+    mode: "single"
+    then:
+      - delay: $garage_door_duration
+      - lambda: !lambda |-
+          // when was opening
+          // simulated opened state based on door duration
+          if (id(door_state) == 3)
+          {
+            id(new_door_state) = 1; // OPENED
+          }
+
+          if (id(door_state) == 4)
+          {
+            id(new_door_state) = 0; // STOPPED
+          }
+
+          if (id(garage_closed).state)
+          {
+            // reed switch has the biggest priority
+            // when the door really closed then set the state
+            id(new_door_state) = 2; // CLOSED
+          }
+      - script.execute: set_door_state
+      - script.execute: publish_door_state
+  - id: publish_door_state
+    mode: "single"
+    then:
+      - lambda: !lambda |-
+          switch (id(door_state))
+          {
+            case 0: // STOPPED
+              id(door_state_text).publish_state("Stopped");
+              id(garage_door_cover).current_operation = COVER_OPERATION_IDLE;
+              id(garage_door_cover).position = 0.5;
+              id(garage_door_cover).publish_state();
+              break;
+            case 1: // OPENED
+              id(door_state_text).publish_state("Opened");
+              id(garage_door_cover).current_operation = COVER_OPERATION_IDLE;
+              id(garage_door_cover).position = COVER_OPEN;
+              id(garage_door_cover).publish_state();
+              break;
+            case 2: // CLOSED
+              id(door_state_text).publish_state("Closed");
+              id(garage_door_cover).current_operation = COVER_OPERATION_IDLE;
+              id(garage_door_cover).position = COVER_CLOSED;
+              id(garage_door_cover).publish_state();
+              break;
+            case 3: // OPENING
+              id(door_state_text).publish_state("Opening");
+              id(garage_door_cover).current_operation = COVER_OPERATION_OPENING;
+              id(garage_door_cover).position = 0.0;
+              id(garage_door_cover).publish_state();
+              break;
+            case 4: // CLOSING
+              id(door_state_text).publish_state("Closing");
+              id(garage_door_cover).current_operation = COVER_OPERATION_CLOSING;
+              id(garage_door_cover).position = 1.0;
+              id(garage_door_cover).publish_state();
+              break;
+          }

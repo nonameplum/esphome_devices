@@ -1,0 +1,25 @@
+substitutions:
+  device_name: gate
+  name: Gate
+  platform: ESP8266
+  board: esp12e
+
+  # gate
+  gate_duration: 19500ms
+  gate_duration_int: "19000"
+
+  gate_close_pin: GPIO14
+  gate_close_debounce_time: 500ms
+
+  gate_relay_pin: GPIO4
+  gate_relay_active_duration: 400ms
+
+packages:
+  config_base: !include common/config_base.yaml
+  gate_base: !include common/gate_base.yaml
+  
+logger:
+  level: INFO
+
+status_led:
+  pin: GPIO2

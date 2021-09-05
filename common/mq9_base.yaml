@@ -1,0 +1,11 @@
+sensor:
+  - platform: mq
+    model: MQ9
+    pin: $mq_pin
+    update_interval: $mq_update_interval
+    sensor_lpg:
+      name: Sensor LPG
+    sensor_ch4:
+      name: Sensor CH4
+    sensor_co:
+      name: Sensor CO

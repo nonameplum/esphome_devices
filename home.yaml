@@ -1,0 +1,24 @@
+substitutions:
+  device_name: home
+  name: home
+  platform: ESP8266
+  board: nodemcu
+
+  # DHT sensor
+  dht_pin: GPIO13
+  dht_temp_name: Home Temperature
+  dht_humidity_name: Home Humidity
+  dht_update_interval: 60s
+
+  # MQ9 Sensor
+  mq_pin: A0
+  mq_update_interval: 10s
+
+packages:
+  config_base: !include common/config_base.yaml
+  dht_base: !include common/dht_base.yaml
+  bmp280_base: !include common/bmp280_base.yaml
+  mq9_base: !include common/mq9_base.yaml
+  
+logger:
+  level: INFO

@@ -1,0 +1,7 @@
+dallas:
+  - pin: $dallas_pin
+
+sensor:
+  - platform: dallas
+    name: $dallas_name
+    address: $dallas_address

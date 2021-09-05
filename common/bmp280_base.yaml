@@ -1,0 +1,15 @@
+# ESP8266
+i2c:
+  sda: GPIO4
+  scl: GPIO5
+  scan: True
+
+sensor:
+  - platform: bmp280
+    temperature:
+      name: "BMP280 Temperature"
+      oversampling: 16x
+    pressure:
+      name: "BMP280 Pressure"
+    address: 0x76
+    update_interval: 60s

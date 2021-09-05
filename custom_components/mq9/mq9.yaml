@@ -1,0 +1,42 @@
+esphome:
+  includes:
+    - custom_components/mq9/mq9.h
+  libraries:
+    - "MQUnifiedsensor"
+
+globals:
+  - id: _platform
+    type: String
+    restore_value: no
+    initial_value: '"${platform}"'
+  - id: _mq9_sensor_pin
+    type: int
+    restore_value: no
+    initial_value: ${mq9_sensor_pin}
+  - id: _mq9_update_interval
+    type: int
+    restore_value: no
+    initial_value: ${mq9_update_interval}
+
+sensor:
+- platform: custom
+  lambda: |-
+    auto mq9Sensor = new MQ9Sensor(id(_platform), id(_mq9_sensor_pin), id(_mq9_update_interval));
+    App.register_component(mq9Sensor);
+    return {mq9Sensor->lpg_sensor, mq9Sensor->ch4_sensor, mq9Sensor->co_sensor};
+  sensors:
+    - name: "LPG Sensor"
+      device_class: "carbon_monoxide"
+      state_class: "measurement"
+      unit_of_measurement: ppm
+      accuracy_decimals: 2
+    - name: "CH4 Sensor"
+      device_class: "carbon_monoxide"
+      state_class: "measurement"
+      unit_of_measurement: ppm
+      accuracy_decimals: 2
+    - name: "CO Sensor"
+      device_class: "carbon_monoxide"
+      state_class: "measurement"
+      unit_of_measurement: ppm
+      accuracy_decimals: 2

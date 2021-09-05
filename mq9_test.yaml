@@ -1,0 +1,22 @@
+substitutions:
+  device_name: mq9_test
+  name: MQ9
+  platform: ESP8266
+  board: nodemcu
+
+  # MQ9 (custom_components/mq9)
+  mq9_sensor_pin: A0
+  mq9_update_interval: "2000"
+
+  # MQ9_base (components/mq)
+  mq_pin: A0
+  mq_update_interval: 2s
+
+packages:
+  config_base: !include common/config_base.yaml
+  mq9_base: !include common/mq9_base.yaml
+  # mq9_base: !include custom_components/mq9/mq9.yaml
+
+# Enable logging
+logger:
+  level: DEBUG

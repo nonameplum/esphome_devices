@@ -1,0 +1,42 @@
+# Light inside relay
+output:
+  - platform: gpio
+    pin: 
+      number: $light_inside_relay_pin
+      inverted: True
+    id: output_light_inside_relay
+
+# Light outside component
+light:
+  - platform: binary
+    name: "Garage Light Inside"
+    id: light_inside
+    output: output_light_inside_relay
+
+# Wall switch for the light inside
+binary_sensor:
+  - platform: gpio
+    pin:
+      number: $switch_light_inside_pin
+      mode: INPUT_PULLUP
+      inverted: True
+    id: light_inside_wall_switch
+    internal: True
+    filters:
+      - delayed_on_off: $switch_light_debaunce_time
+    on_state:
+      then:
+        - logger.log: "switch_light_inside_pin | on_state"
+        - script.stop: light_inside_timer
+        - light.toggle: light_inside
+
+# Delayed off light inside
+script:
+  - id: light_inside_timer
+    mode: "restart"
+    then:
+      - logger.log: "light_inside_timer | Turn ON light inside"
+      - light.turn_on: light_inside
+      - delay: $light_inside_duration
+      - logger.log: "light_inside_timer | Turn OFF light inside"
+      - light.turn_off: light_inside

@@ -1,0 +1,214 @@
+esphome:
+  on_boot:
+    priority: -200
+    then:
+      - wait_until:
+          wifi.connected:
+      - delay: 2s
+      - lambda: |-
+          id(new_gate_state) = id(gate_closed).state ? 2 : 1;
+      - script.execute: set_gate_state
+      - script.execute: publish_gate_state
+
+globals:
+  - id: gate_state
+    type: int
+    restore_value: no
+    # OPENED = 1, CLOSED = 2, OPENING = 3, CLOSING = 4
+    initial_value: "0"
+  - id: last_gate_state
+    type: int
+    restore_value: no
+    # OPENED = 1, CLOSED = 2, OPENING = 3, CLOSING = 4
+    initial_value: "-1"
+  - id: new_gate_state
+    type: int
+    restore_value: no
+    # OPENED = 1, CLOSED = 2, OPENING = 3, CLOSING = 4
+    initial_value: "-1"
+  - id: gate_duration
+    type: float
+    restore_value: no
+    initial_value: $gate_duration_int
+
+binary_sensor:
+  - platform: gpio
+    pin:
+      number: $gate_close_pin
+      mode: INPUT
+      inverted: False
+    id: gate_closed
+    internal: True
+    filters:
+      - delayed_on_off: $gate_close_debounce_time
+    on_release: # door externally closed
+      then:
+        - script.stop: gate_timer
+        - lambda: !lambda |-
+            id(new_gate_state) = 3; // OPENING
+        - script.execute: set_gate_state
+        - script.execute: publish_gate_state
+        - script.execute: gate_timer
+    on_press: # gate externally opened
+      then:
+        - script.stop: gate_timer
+        - lambda: !lambda |-
+            id(new_gate_state) = 2; // CLOSED
+        - script.execute: set_gate_state
+        - script.execute: publish_gate_state
+  - platform: template
+    name: "Gate"
+    device_class: garage_door
+    lambda: !lambda |-
+      return !id(gate_closed).state;
+
+switch:
+  - platform: gpio
+    pin: 
+      number: $gate_relay_pin
+    id: gate_relay
+    internal: True
+  - platform: template
+    icon: "mdi:arrow-up-down-bold-outline"
+    name: "Gate Control"
+    id: gate_control
+    lambda: 'return id(gate_relay).state;'
+    turn_on_action:
+      - lambda: !lambda |-
+          if (id(gate_state) == 1) // when door opened
+          {
+            id(new_gate_state) = 4; // CLOSING
+          }
+          else if (id(gate_state) == 2) // when door closed
+          {
+            id(new_gate_state) = 3; // OPENING
+          }
+      - switch.turn_on: gate_relay
+      - delay: $gate_relay_active_duration
+      - switch.turn_off: gate_relay
+      - script.execute: set_gate_state
+      - script.execute: publish_gate_state
+      - script.execute: gate_timer
+
+text_sensor:
+  - platform: template
+    name: "Gate State"
+    id: gate_state_text
+
+cover:
+  - platform: template
+    name: "Gate Cover"
+    id: gate_cover
+    device_class: gate
+    optimistic: False
+    has_position: True
+    assumed_state: False
+    open_action:
+      - switch.turn_on: gate_control
+    close_action:
+      - switch.turn_on: gate_control
+    stop_action:
+      - switch.turn_on: gate_control
+    lambda: |-
+      static uint32_t last_recompute_time = 0;
+      static uint32_t last_publish_time = 0;
+      static uint8_t calculated_current_operation = -1;
+      
+      // Guard that the door is closed or in idle state then do not calculate position
+      // Tree hazard checks
+      if (id(gate_closed).state == 1 // Door closed
+          || id(gate_cover).current_operation == COVER_OPERATION_IDLE
+          || id(gate_timer).is_running() == false) 
+      {
+        calculated_current_operation = -1;
+        return {};
+      }
+
+      // Safety check do distinguish direction change
+      if (calculated_current_operation != id(gate_cover).current_operation)
+      {
+        last_recompute_time = millis();
+        last_publish_time = millis();
+        calculated_current_operation = id(gate_cover).current_operation;
+      }
+
+      // set dir and duration depending on current movement
+      float dir = (id(gate_cover).current_operation == COVER_OPERATION_CLOSING) ? -1.0f : 1.0f; 
+      // calculate position
+      float position = id(gate_cover).position;
+      position += dir * (millis() - last_recompute_time) / id(gate_duration);
+      id(gate_cover).position = clamp(position, 0.0f, 1.0f);
+      // publish position every second
+      if (millis() - last_publish_time > 1000)
+      {
+        id(gate_cover).publish_state();
+        last_publish_time = millis();
+      }
+      last_recompute_time = millis();
+
+      return {};
+
+script:
+  - id: set_gate_state
+    mode: "single"
+    then:
+      - lambda: !lambda |-
+          if (id(new_gate_state) < 0) 
+          {
+            return;
+          }
+
+          id(last_gate_state) = id(gate_state);
+          id(gate_state) = id(new_gate_state);
+          id(new_gate_state) = -1;
+  - id: gate_timer
+    mode: "single"
+    then:
+      - delay: $gate_duration
+      - lambda: !lambda |-
+          // when was opening
+          // simulated opened state based on door duration
+          if (id(gate_state) == 3 || id(gate_state) == 4)
+          {
+            id(new_gate_state) = 1; // OPENED
+          }
+
+          if (id(gate_closed).state)
+          {
+            // reed switch has the biggest priority
+            // when the door really closed then set the state
+            id(new_gate_state) = 2; // CLOSED
+          }
+      - script.execute: set_gate_state
+      - script.execute: publish_gate_state
+  - id: publish_gate_state
+    mode: "single"
+    then:
+      - lambda: !lambda |-
+          switch (id(gate_state))
+          {
+            case 1: // OPENED
+              id(gate_state_text).publish_state("Opened");
+              id(gate_cover).current_operation = COVER_OPERATION_IDLE;
+              id(gate_cover).position = COVER_OPEN;
+              id(gate_cover).publish_state();
+              break;
+            case 2: // CLOSED
+              id(gate_state_text).publish_state("Closed");
+              id(gate_cover).current_operation = COVER_OPERATION_IDLE;
+              id(gate_cover).position = COVER_CLOSED;
+              id(gate_cover).publish_state();
+              break;
+            case 3: // OPENING
+              id(gate_state_text).publish_state("Opening");
+              id(gate_cover).current_operation = COVER_OPERATION_OPENING;
+              id(gate_cover).position = 0.0;
+              id(gate_cover).publish_state();
+              break;
+            case 4: // CLOSING
+              id(gate_state_text).publish_state("Closing");
+              id(gate_cover).current_operation = COVER_OPERATION_CLOSING;
+              id(gate_cover).position = 1.0;
+              id(gate_cover).publish_state();
+              break;
+          }

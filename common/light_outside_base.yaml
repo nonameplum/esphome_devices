@@ -1,0 +1,64 @@
+# Light outside relay
+output:
+  - platform: gpio
+    pin:
+      number: $light_outside_relay_pin
+      inverted: True
+    id: output_light_outside_relay
+
+# Light outside component
+light:
+  - platform: binary
+    name: "Garage Light Outside"
+    id: light_outside
+    output: output_light_outside_relay
+
+# Wall switch for the light outside
+binary_sensor:
+  - platform: gpio
+    pin:
+      number: $switch_light_outside_pin
+      mode: INPUT_PULLUP
+      inverted: True
+    id: light_outside_wall_switch
+    internal: True
+    filters:
+      - delayed_on_off: $switch_light_debaunce_time
+    on_state:
+      then:
+        - logger.log: "switch_light_outside_pin | on_state"
+        - script.stop: light_outside_timer
+        - light.toggle: light_outside
+
+# Delayed off light outside
+script:
+  - id: light_outside_timer
+    mode: "restart"
+    then:
+      - if:
+          condition:
+            - sun.is_below_horizon:
+            # lambda: |-
+            #   auto time = id(sun_home).get_time()->now();
+            #   auto sunrise = id(sun_home).sunrise(0);
+            #   auto sunset = id(sun_home).sunset(0);
+
+            #   ESP_LOGI("Current Time", time.strftime("time: %x %X").c_str());
+
+            #   if (!sunrise.has_value() || !sunset.has_value())
+            #   {
+            #     return true;
+            #   }
+
+            #   ESP_LOGI("Sunrise Time", sunrise.value().strftime("time: %x %X").c_str());
+            #   ESP_LOGI("Sunset Time", sunset.value().strftime("time: %x %X").c_str());
+
+            #   return (time <= sunrise.value()) || (time >= sunset.value());
+          then:
+            - logger.log: "light_outside_timer | Turn ON light outside"
+            - light.turn_on: light_outside
+            - delay: $light_outside_duration
+            - logger.log: "light_outside_timer | Turn OFF light outside"
+            - light.turn_off: light_outside
+          else:
+            - logger.log: "light_outside_timer | Sun above horizon"

@@ -1,0 +1,43 @@
+substitutions:
+  # device config
+  device_name: garage
+  name: garage
+  platform: ESP32
+  board: esp32dev
+
+  # garage door config
+  garage_door_duration: 21500ms
+  garage_door_duration_int: "21000"
+  garage_door_relay_pin: GPIO32 # gpio pin that trigger the door opening/closing/stop
+  garage_door_relay_active_duration: 400ms # amount of time relay is closed
+  garage_door_close_reed_switch_pin: GPIO18 # gpio pin for close reed switch
+  garage_door_reed_switch_debounce_time: 500ms # debounce time for the reed switch
+
+  # light common
+  switch_light_debaunce_time: 200ms
+
+  # light inside config
+  light_inside_relay_pin: GPIO33
+  light_inside_duration: 180s
+  switch_light_inside_pin: GPIO27
+  
+  # light outside config
+  light_outside_relay_pin: GPIO25
+  light_outside_duration: 60s
+  switch_light_outside_pin: GPIO26
+
+  # outside temperature config
+  dallas_pin: GPIO19
+  dallas_name: "Outside Temperature"
+  dallas_address: "0xAD0301A279FB7328"
+
+packages:
+  config_base: !include common/config_base.yaml
+  device_base: !include common/garage_door_base.yaml
+  light_inside_base: !include common/light_inside_base.yaml
+  light_outside_base: !include common/light_outside_base.yaml
+  temperature_outside_base: !include common/dallas_base.yaml
+
+# Enable logging
+logger:
+  level: INFO
